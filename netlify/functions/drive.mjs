@@ -25,7 +25,11 @@ export default async (req) => {
         mime: "mimeType contains 'image/'"
       }
     };
-
+    console.log("Carpetas configuradas:", {
+  videos: Boolean(process.env.VIDEOS_FOLDER_ID),
+  news: Boolean(process.env.NEWS_FOLDER_ID),
+  promos: Boolean(process.env.PROMO_FOLDER_ID)
+});
     // Identificar qué carpeta solicita la web
     const url = new URL(req.url);
     const type = url.searchParams.get("folder");
