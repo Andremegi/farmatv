@@ -102,39 +102,26 @@ function showVideos(files) {
   let index = 0;
 
   const render = () => {
-    const video = document.createElement("video");
+    const iframe = document.createElement("iframe");
 
-    video.src =
-      `https://drive.google.com/uc?export=download&id=${files[index].id}`;
+    iframe.src =
+      `https://drive.google.com/file/d/${files[index].id}/preview?autoplay=1&mute=1`;
 
-    video.autoplay = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.controls = false;
-    video.preload = "auto";
+    iframe.allow = "autoplay; encrypted-media";
+    iframe.allowFullscreen = true;
+    iframe.title = files[index].name;
 
-    video.onended = () => {
-      index = (index + 1) % files.length;
-      render();
-    };
-
-    video.onerror = () => {
-      stage.innerHTML = `
-        <div class="empty">
-          No se ha podido reproducir el vídeo.
-          Comprueba que el archivo MP4 sea público.
-        </div>`;
-    };
-
-    stage.replaceChildren(video);
-
-    video.play().catch(error => {
-      console.error("Error de reproducción:", error);
-    });
+    stage.replaceChildren(iframe);
   };
 
   render();
+
+  setInterval(() => {
+    index = (index + 1) % files.length;
+    render();
+  }, CONFIG.videoSeconds * 1000);
 }
+
 
 // MOSTRAR IMÁGENES
 
