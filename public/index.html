@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<script src="config.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Farmacia Barceló | Pantalla</title>
@@ -46,56 +45,169 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr
   </div>
 </main>
 <script>
-/*
-CONFIGURACIÓN:
-1) Crea una API key de Google Drive API (Google Cloud) y pégala abajo.
-2) Pega el ID de cada carpeta de Drive. ID = texto entre /folders/ y el siguiente ? de su URL.
-3) Comparte las carpetas como "Cualquier persona con el enlace – Lector".
-4) Añade vídeos MP4 y fotos JPG/PNG/WebP a sus carpetas. La pantalla los rotará automáticamente.
-*/
+const CONFIG = {
+  instagramUrl: "https://www.instagram.com/farmaciabarcelomadrid/",
+  instagramLabel: "@farmaciabarcelomadrid",
+  websiteUrl: "https://farmaciabarcelo.es",
+  websiteLabel: "farmaciabarcelo.es",
+  videoSeconds: 30,
+  imageSeconds: 8
+};
 
-const API_KEY = typeof CONFIG !== 'undefined' ? CONFIG.apiKey : '';
-const VIDEOS_FOLDER = typeof CONFIG !== 'undefined' ? CONFIG.videosFolderId : '';
+// Dirección de nuestra función de Netlify
+const DRIVE_ENDPOINT = "/.netlify/functions/drive";
 
-document.getElementById("instagram").href=CONFIG.instagramUrl;
-document.getElementById("instagram").textContent="Instagram: "+CONFIG.instagramLabel;
-document.getElementById("website").href=CONFIG.websiteUrl;
-document.getElementById("website").textContent=CONFIG.websiteLabel;
+// Configurar enlaces
+document.getElementById("instagram").href = CONFIG.instagramUrl;
+document.getElementById("instagram").textContent =
+  "Instagram: " + CONFIG.instagramLabel;
 
-async function listDrive(folderId, mimeQuery){
-  if(!CONFIG.googleApiKey.startsWith("AIza") || folderId.startsWith("ID_")) return [];
-  const q=`'${folderId}' in parents and trashed=false and (${mimeQuery})`;
-  const url=new URL("https://www.googleapis.com/drive/v3/files");
-  url.search=new URLSearchParams({q, key:CONFIG.googleApiKey, fields:"files(id,name,mimeType,thumbnailLink)", pageSize:"100", orderBy:"name"});
-  const response=await fetch(url);
-  if(!response.ok) throw new Error("Drive API: "+response.status);
-  return (await response.json()).files||[];
+document.getElementById("website").href = CONFIG.websiteUrl;
+document.getElementById("website").textContent =
+  CONFIG.websiteLabel;
+
+
+// CONSULTAR GOOGLE DRIVE A TRAVÉS DE NETLIFY
+
+async function listDrive(folder) {
+
+  const response = await fetch(
+    `${DRIVE_ENDPOINT}?folder=${encodeURIComponent(folder)}`
+  );
+
+  if (!response.ok) {
+    throw new Error("Error consultando Drive: " + response.status);
+  }
+
+  const data = await response.json();
+
+  return data.files || [];
 }
-function drivePreview(id){return `https://drive.google.com/file/d/${id}/preview?autoplay=1&mute=1`;}
-function driveImage(id){return `https://lh3.googleusercontent.com/d/${id}`;}
-function showVideos(files){
-  const stage=document.getElementById("videoStage");
-  if(!files.length){stage.innerHTML='<div class="empty">Añade vídeos MP4 a la carpeta configurada en Drive.<br><small>El carrusel aparecerá aquí.</small></div>';return;}
-  let index=0;
-  const render=()=>{stage.innerHTML=`<iframe src="${drivePreview(files[index].id)}" allow="autoplay; encrypted-media" allowfullscreen title="${files[index].name.replaceAll('"','')}"></iframe>`;};
-  render();setInterval(()=>{index=(index+1)%files.length;render();},CONFIG.videoSeconds*1000);
+
+
+// MOSTRAR VÍDEOS
+
+function showVideos(files) {
+
+  const stage = document.getElementById("videoStage");
+
+  if (!files.length) {
+    stage.innerHTML = `
+      <div class="empty">
+        Añade vídeos MP4 a la carpeta configurada en Drive.
+        <br><small>El carrusel aparecerá aquí.</small>
+      </div>`;
+    return;
+  }
+
+  let index = 0;
+
+  const render = () => {
+
+    const iframe = document.createElement("iframe");
+
+    iframe.src =
+      `https://drive.google.com/file/d/${files[index].id}/preview?autoplay=1&mute=1`;
+
+    iframe.allow = "autoplay; encrypted-media";
+    iframe.allowFullscreen = true;
+    iframe.title = files[index].name;
+
+    stage.replaceChildren(iframe);
+  };
+
+  render();
+
+  setInterval(() => {
+    index = (index + 1) % files.length;
+    render();
+  }, CONFIG.videoSeconds * 1000);
 }
-function showImages(files, stageId){
-  const stage=document.getElementById(stageId);
-  if(!files.length){stage.innerHTML='<div class="empty-side">Añade imágenes a la carpeta de Drive configurada.</div>';return;}
-  let index=0;
-  const render=()=>{stage.innerHTML=`<img src="${driveImage(files[index].id)}" alt="${files[index].name.replaceAll('"','')}"><div class="caption">${files[index].name.replace(/\.[^.]+$/,"")}</div>`;};
-  render();setInterval(()=>{index=(index+1)%files.length;render();},CONFIG.imageSeconds*1000);
+
+
+// MOSTRAR IMÁGENES
+
+function showImages(files, stageId) {
+
+  const stage = document.getElementById(stageId);
+
+  if (!files.length) {
+    stage.innerHTML = `
+      <div class="empty-side">
+        Añade imágenes a la carpeta de Drive configurada.
+      </div>`;
+    return;
+  }
+
+  let index = 0;
+
+  const render = () => {
+
+    const img = document.createElement("img");
+
+    img.src =
+      `https://lh3.googleusercontent.com/d/${files[index].id}`;
+
+    img.alt = files[index].name;
+
+    const caption = document.createElement("div");
+
+    caption.className = "caption";
+
+    caption.textContent = files[index].name.replace(/\.[^.]+$/, "");
+
+    stage.replaceChildren(img, caption);
+  };
+
+  render();
+
+  setInterval(() => {
+    index = (index + 1) % files.length;
+    render();
+  }, CONFIG.imageSeconds * 1000);
 }
-(async()=>{
- try{
-  const [videos,news,promos]=await Promise.all([
-   listDrive(CONFIG.videosFolderId,"mimeType='video/mp4'"),
-   listDrive(CONFIG.newsFolderId,"mimeType contains 'image/'"),
-   listDrive(CONFIG.promoFolderId,"mimeType contains 'image/'")
-  ]);
-  showVideos(videos);showImages(news,"newsStage");showImages(promos,"promoStage");
- }catch(e){console.error(e);document.querySelectorAll(".carousel-stage,.video-stage").forEach(el=>el.innerHTML='<div class="empty-side">No se pudo cargar Drive. Revisa la API key, los IDs y los permisos públicos.</div>');}
+
+
+// INICIAR LA PANTALLA
+
+(async () => {
+
+  try {
+
+    const [videos, news, promos] = await Promise.all([
+
+      listDrive("videos"),
+
+      listDrive("news"),
+
+      listDrive("promos")
+
+    ]);
+
+    showVideos(videos);
+
+    showImages(news, "newsStage");
+
+    showImages(promos, "promoStage");
+
+  } catch (error) {
+
+    console.error("Error cargando contenido:", error);
+
+    document.querySelectorAll(
+      ".carousel-stage, .video-stage"
+    ).forEach(stage => {
+
+      stage.innerHTML = `
+        <div class="empty-side">
+          No se pudo cargar el contenido.
+          Comprueba la conexión con Google Drive.
+        </div>`;
+
+    });
+
+  }
+
 })();
 </script>
 </body>
