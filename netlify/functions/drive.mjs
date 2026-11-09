@@ -65,7 +65,13 @@ export default async (req) => {
     );
 
     if (!response.ok) {
-      console.error("Google Drive error:", response.status);
+      const errorDetails = await response.text();
+
+      console.error(
+        "Google Drive error:",
+        response.status,
+        errorDetails
+      );
 
       return Response.json(
         { error: "Error consultando Google Drive" },
