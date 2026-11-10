@@ -100,11 +100,23 @@ function showVideos(files) {
     return;
   }
 
+  // ---------------------------------------------------------------
+  // CACHÉ LOCAL: cada vídeo se descarga de Drive UNA sola vez y se
+  // guarda en el navegador. Así Google no nos bloquea por "consultas
+  // automatizadas" al repetir descargas en cada vuelta del bucle.
+  // ---------------------------------------------------------------
+  const CACHE_NAME = "farmatv-videos-v1";
+  const RETRY_MINUTES = 30;          // reintento si Google bloquea/falla
+  const cacheKey = f => `/video-cache/${f.id}`;
+  const hasCache = "caches" in window;
+
+  const ready = [];                  // vídeos ya guardados, listos para reproducir
   let index = 0;
   let lastTime = -1;
   let stuckSeconds = 0;
+  let currentUrl = null;
+  let started = false;
 
-  // Un único reproductor reutilizado (más fiable en TVs que crear uno nuevo)
   const video = document.createElement("video");
   video.autoplay = true;
   video.muted = true;
@@ -117,16 +129,27 @@ function showVideos(files) {
   video.style.objectFit = "contain";
   video.style.background = "#000";
 
-  // Si solo hay un vídeo, repetirlo en bucle
-  video.loop = files.length === 1;
+  stage.innerHTML = `<div class="empty">Cargando vídeos…</div>`;
 
-  stage.replaceChildren(video);
-
-  const play = () => {
+  const play = async () => {
+    if (!ready.length) return;
+    index = index % ready.length;
+    const file = ready[index];
     lastTime = -1;
     stuckSeconds = 0;
-    // Vídeo vía Drive API (alt=media): streaming real compatible con <video>
-    video.src = files[index].src;
+    video.loop = ready.length === 1;
+
+    let src = file.src;
+    if (hasCache) {
+      const cache = await caches.open(CACHE_NAME);
+      const res = await cache.match(cacheKey(file));
+      if (res) {
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
+        currentUrl = URL.createObjectURL(await res.blob());
+        src = currentUrl;
+      }
+    }
+    video.src = src;
     video.load();
     video.play().catch(error => {
       console.error("Autoplay bloqueado o error:", error);
@@ -134,26 +157,36 @@ function showVideos(files) {
   };
 
   const next = () => {
-    index = (index + 1) % files.length; // al llegar al final vuelve al primero
+    index = (index + 1) % Math.max(ready.length, 1);
     play();
   };
 
-  // Cuando termina, reproduce el siguiente
+  const addReady = file => {
+    ready.push(file);
+    if (!started) {
+      started = true;
+      stage.replaceChildren(video);
+      play();
+    } else {
+      video.loop = ready.length === 1;
+    }
+  };
+
   video.addEventListener("ended", next);
 
-  // Si falla la carga, lo registramos y saltamos al siguiente
   video.addEventListener("error", () => {
-    console.error("Error cargando vídeo:", files[index].name, video.error);
+    console.error("Error cargando vídeo:", ready[index] && ready[index].name, video.error);
     setTimeout(next, 3000);
   });
 
-  // Vigilante: si el vídeo no avanza durante 20 s (atascado), saltar al siguiente
+  // Vigilante: si el vídeo no avanza durante 20 s, saltar al siguiente
   setInterval(() => {
+    if (!started) return;
     if (video.currentTime === lastTime) {
       stuckSeconds += 5;
       if (video.paused) video.play().catch(() => {});
       if (stuckSeconds >= 20) {
-        console.warn("Vídeo atascado, saltando:", files[index].name);
+        console.warn("Vídeo atascado, saltando:", ready[index] && ready[index].name);
         next();
       }
     } else {
@@ -162,7 +195,75 @@ function showVideos(files) {
     }
   }, 5000);
 
-  play();
+  // Descarga un vídeo y lo guarda. Devuelve true si quedó guardado.
+  const download = async (cache, file) => {
+    try {
+      const res = await fetch(file.src);
+      const type = res.headers.get("content-type") || "";
+      if (!res.ok || !type.startsWith("video/")) {
+        console.warn("Drive no devolvió el vídeo:", file.name, res.status, type);
+        return false;
+      }
+      await cache.put(cacheKey(file), res);
+      return true;
+    } catch (error) {
+      console.warn("Fallo descargando vídeo:", file.name, error);
+      return false;
+    }
+  };
+
+  const loadAll = async () => {
+    // Sin Cache API: reproducir directamente desde Drive (comportamiento antiguo)
+    if (!hasCache) {
+      files.forEach(addReady);
+      return;
+    }
+
+    const cache = await caches.open(CACHE_NAME);
+
+    // Borrar vídeos guardados que ya no están en la carpeta de Drive
+    const wanted = new Set(files.map(f => cacheKey(f)));
+    for (const req of await cache.keys()) {
+      if (!wanted.has(new URL(req.url).pathname)) await cache.delete(req);
+    }
+
+    // Primero los que ya estaban guardados (no tocan Drive)
+    const pending = [];
+    for (const file of files) {
+      if (await cache.match(cacheKey(file))) addReady(file);
+      else pending.push(file);
+    }
+
+    // Luego descargar los nuevos, de uno en uno
+    const failed = [];
+    for (const file of pending) {
+      if (await download(cache, file)) addReady(file);
+      else failed.push(file);
+    }
+
+    // Reintentar los que fallaron cada RETRY_MINUTES hasta conseguirlo
+    const retry = async list => {
+      if (!list.length) return;
+      if (!started) {
+        stage.innerHTML = `<div class="empty">No se pudieron descargar los vídeos.<br>
+          <small>Se reintentará en ${RETRY_MINUTES} minutos.</small></div>`;
+      }
+      setTimeout(async () => {
+        const stillFailed = [];
+        for (const file of list) {
+          if (await download(cache, file)) addReady(file);
+          else stillFailed.push(file);
+        }
+        retry(stillFailed);
+      }, RETRY_MINUTES * 60 * 1000);
+    };
+    retry(failed);
+  };
+
+  loadAll().catch(error => {
+    console.error("Error preparando vídeos:", error);
+    files.forEach(addReady);   // último recurso: reproducir directo de Drive
+  });
 }
 
 // PANTALLA COMPLETA
