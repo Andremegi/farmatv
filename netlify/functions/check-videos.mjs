@@ -1,4 +1,4 @@
-// Función programada: una vez al día compara los vídeos de Drive con los
+// Función programada: cada hora compara los vídeos de Drive con los
 // publicados en la web. Solo si hay cambios lanza un nuevo deploy
 // (cada deploy gasta créditos de Netlify, así que no se hace si no hace falta).
 //
@@ -47,5 +47,6 @@ export default async () => {
   console.log("Build hook:", hook.status);
 };
 
-// Todos los días a las 05:00 UTC (antes de abrir la farmacia)
-export const config = { schedule: "0 5 * * *" };
+// Cada hora (en punto). Solo hace deploy si hay vídeos nuevos o borrados,
+// así que comprobar a menudo no gasta créditos de deploy.
+export const config = { schedule: "0 * * * *" };
