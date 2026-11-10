@@ -95,6 +95,7 @@ function showVideos(files) {
     stage.innerHTML = `
       <div class="empty">
         Añade vídeos MP4 a la carpeta configurada en Drive.
+        <br><small>El carrusel aparecerá aquí.</small>
       </div>`;
     return;
   }
@@ -102,24 +103,56 @@ function showVideos(files) {
   let index = 0;
 
   const render = () => {
-    const iframe = document.createElement("iframe");
+    const video = document.createElement("video");
 
-    iframe.src =
-      `https://drive.google.com/file/d/${files[index].id}/preview?autoplay=1&mute=1`;
+    // Configuración del reproductor
+    video.autoplay = true;
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.controls = false;
+    video.preload = "auto";
 
-    iframe.allow = "autoplay; encrypted-media";
-    iframe.allowFullscreen = true;
-    iframe.title = files[index].name;
+    // Adaptación al espacio de la televisión
+    video.style.width = "100%";
+    video.style.height = "100%";
+    video.style.objectFit = "contain";
+    video.style.background = "#000";
 
-    stage.replaceChildren(iframe);
+    // Vídeo directamente desde Google Drive
+    video.src =
+      `https://drive.google.com/uc?export=download&id=${files[index].id}`;
+
+    // Cuando termina, reproduce el siguiente
+    video.onended = () => {
+      index = (index + 1) % files.length;
+      render();
+    };
+
+    // Si falla la carga, mostramos el error
+    video.onerror = () => {
+      console.error(
+        "Error cargando vídeo:",
+        files[index].name,
+        video.error
+      );
+
+      stage.innerHTML = `
+        <div class="empty">
+          No se ha podido cargar el vídeo:
+          ${files[index].name}
+        </div>`;
+    };
+
+    stage.replaceChildren(video);
+
+    // Intentar iniciar la reproducción
+    video.play().catch(error => {
+      console.error("Autoplay bloqueado o error:", error);
+    });
   };
 
   render();
-
-  setInterval(() => {
-    index = (index + 1) % files.length;
-    render();
-  }, CONFIG.videoSeconds * 1000);
 }
 
 
