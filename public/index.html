@@ -21,6 +21,14 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1fr 1.65fr
 .caption{position:absolute;bottom:0;left:0;right:0;background:#C2B2D8;color:#FBF9F6;padding:10px 14px;font-size:1.2vw;font-size:clamp(12px,1.2vw,18px);text-align:center}
 .empty-side{padding:20px;text-align:center;color:#78619B;font-size:1.3vw;font-size:clamp(14px,1.3vw,20px)}
 @media(max-aspect-ratio:4/3){main{grid-template-columns:1fr 1.3fr}.brand{font-size:25px}}
+/* Pantalla de pausa entre vídeos: logo + frase */
+.pause-screen{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--cream);display:none;align-items:center;justify-content:center;z-index:5}
+.pause-screen.show{display:flex}
+.pause-logo{width:100%;height:100%;object-fit:contain;padding:3vh 3vw}
+.pause-brand{font-size:4vw;font-weight:800;color:var(--green);letter-spacing:.04em;margin-bottom:18vh}
+.pause-phrase{position:absolute;left:50%;bottom:14%;transform:translateX(-50%);width:80%;text-align:center;
+  font-size:2.6vw;font-size:clamp(22px,2.6vw,44px);font-weight:700;line-height:1.3;color:var(--ink);
+  background:rgba(251,249,246,.88);padding:.6em 1em;border-radius:14px;box-shadow:0 4px 18px rgba(136,113,170,.25)}
 </style>
 </head>
 <body>
@@ -84,6 +92,7 @@ const CONFIG = {
   websiteUrl: "https://farmaciabarcelo.es",
   websiteLabel: "farmaciabarcelo.es",
   pauseBetweenVideos: 30,   // segundos de pausa entre un vídeo y el siguiente
+  defaultPhrase: "¡Que tengas un buen día!",   // si no hay frases en Drive
   imageSeconds: 8
 };
 
@@ -191,9 +200,43 @@ function showVideos(files) {
   startHint.textContent = "Pulsa OK en el mando para empezar";
   startHint.style.cssText = "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);" +
     "background:rgba(0,0,0,.75);color:#fff;padding:18px 28px;border-radius:12px;" +
-    "font-size:24px;font-weight:700;text-align:center;display:none";
+    "font-size:24px;font-weight:700;text-align:center;display:none;z-index:6";
   stage.style.position = "relative";
   stage.innerHTML = `<div class="empty">Cargando vídeos…</div>`;
+
+  // PANTALLA DE PAUSA: logo + frase (carpeta "pause" de Drive)
+  const pauseScreen = document.createElement("div");
+  pauseScreen.className = "pause-screen";
+  const pauseLogo = document.createElement("div");
+  pauseLogo.className = "pause-brand";
+  pauseLogo.textContent = "FARMACIA BARCELÓ";      // si no hay logo en Drive
+  const pausePhrase = document.createElement("div");
+  pausePhrase.className = "pause-phrase";
+  pauseScreen.append(pauseLogo, pausePhrase);
+
+  let phrases = [];
+  let phraseIndex = 0;
+  fetch(`${DRIVE_ENDPOINT}?folder=pause`)
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error("pause " + r.status))))
+    .then(data => {
+      phrases = data.phrases || [];
+      if (data.logo) {
+        const img = document.createElement("img");
+        img.className = "pause-logo";
+        img.alt = "Logo";
+        img.src = `https://lh3.googleusercontent.com/d/${data.logo.id}`;
+        pauseScreen.replaceChild(img, pauseLogo);
+      }
+    })
+    .catch(error => console.warn("Sin logo/frases de pausa, se usa el texto por defecto:", error));
+
+  const showPause = () => {
+    pausePhrase.textContent = phrases.length
+      ? phrases[phraseIndex++ % phrases.length]
+      : CONFIG.defaultPhrase;
+    pauseScreen.classList.add("show");
+  };
+  const hidePause = () => pauseScreen.classList.remove("show");
 
   const tryPlay = () => {
     const p = video.play();
@@ -215,6 +258,7 @@ function showVideos(files) {
     index = index % ready.length;
     const file = ready[index];
     state = "playing";
+    hidePause();
     lastTime = -1;
     stuckSeconds = 0;
     video.src = localUrls[file.id] || file.src;
@@ -241,7 +285,7 @@ function showVideos(files) {
     ready.push(file);
     if (!started) {
       started = true;
-      stage.replaceChildren(video, startHint);
+      stage.replaceChildren(video, pauseScreen, startHint);
       play();
     }
   };
@@ -250,6 +294,7 @@ function showVideos(files) {
   video.addEventListener("ended", () => {
     if (state !== "playing") return;
     state = "pausing";
+    if (CONFIG.pauseBetweenVideos > 0) showPause();
     scheduleNext(CONFIG.pauseBetweenVideos * 1000);
   });
 

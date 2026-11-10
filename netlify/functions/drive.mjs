@@ -23,6 +23,12 @@ export default async (req) => {
       promos: {
         id: process.env.PROMO_FOLDER_ID,
         mime: "mimeType contains 'image/'"
+      },
+      // Pausa entre vídeos: logo (imagen) + archivo de frases opcional
+      // (Google Doc o .txt, una frase por línea)
+      pause: {
+        id: process.env.PAUSE_FOLDER_ID,
+        mime: "mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'text/plain'"
       }
     };
     console.log("Carpetas configuradas:", {
@@ -85,6 +91,13 @@ export default async (req) => {
 
     const data = await response.json();
 
+    if (type === "pause") {
+      return Response.json(
+        await buildPause(data.files || [], API_KEY),
+        { headers: { "Cache-Control": "public, max-age=60" } }
+      );
+    }
+
     // URL de streaming directo (soporta Range requests, sin página de antivirus).
     // Se puede usar una clave aparte, restringida por dominio, para el navegador.
     const MEDIA_KEY = process.env.GOOGLE_MEDIA_KEY || API_KEY;
@@ -111,3 +124,35 @@ export default async (req) => {
     );
   }
 };
+
+
+// Devuelve { logo: {id,name} | null, phrases: [..] } para la pausa entre vídeos
+async function buildPause(files, apiKey) {
+  const logo = files.find(f => f.mimeType.startsWith("image/")) || null;
+  const textFile = files.find(f =>
+    f.mimeType === "application/vnd.google-apps.document" || f.mimeType === "text/plain"
+  );
+
+  let phrases = [];
+  if (textFile) {
+    const base = `https://www.googleapis.com/drive/v3/files/${textFile.id}`;
+    const url = textFile.mimeType === "text/plain"
+      ? `${base}?alt=media`
+      : `${base}/export?mimeType=text/plain`;
+    const res = await fetch(url, { headers: { "X-Goog-Api-Key": apiKey } });
+    if (res.ok) {
+      phrases = (await res.text())
+        .replace(/^\uFEFF/, "")          // marca BOM que añade Google Docs
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+    } else {
+      console.error("No se pudo leer el archivo de frases:", res.status, await res.text());
+    }
+  }
+
+  return {
+    logo: logo && { id: logo.id, name: logo.name },
+    phrases
+  };
+}
