@@ -146,69 +146,45 @@ function showVideos(files) {
   }
 
   // ---------------------------------------------------------------
-  // CACHÉ LOCAL: cada vídeo se descarga de Drive UNA sola vez y se
-  // guarda en el navegador. Así Google no nos bloquea por "consultas
-  // automatizadas" al repetir descargas en cada vuelta del bucle.
+  // CACHÉ LOCAL: cada vídeo se descarga UNA vez y se guarda en el
+  // navegador, para no gastar ancho de banda de Netlify en cada vuelta.
   // ---------------------------------------------------------------
   const CACHE_NAME = "farmatv-videos-v2";   // v2: vídeos convertidos a H.264
-  const RETRY_MINUTES = 30;          // reintento si Google bloquea/falla
   const cacheKey = f => `/video-cache/${f.id}`;
-  const hasCache = "caches" in window;
+  // Las Smart TV (Samsung Tizen, LG webOS) pasan el vídeo a su reproductor
+  // nativo, que no abre URLs "blob:" (copias locales). En ellas se
+  // reproduce directamente desde Netlify.
+  const isSmartTV = /SMART-TV|Tizen|Web0S|webOS|SmartTV/i.test(navigator.userAgent);
+  const hasCache = "caches" in window && !isSmartTV;
 
-  const ready = [];                  // vídeos ya guardados, listos para reproducir
+  const ready = [];          // vídeos listos para reproducir, en orden
+  const localUrls = {};      // id -> URL local (blob) del vídeo guardado
   let index = 0;
+  let started = false;
+
+  // ESTADO DEL REPRODUCTOR: solo hay UN temporizador para pasar al
+  // siguiente vídeo, así nada puede cambiar el vídeo dos veces a la vez.
+  //   "playing" -> reproduciendo (o cargando) el vídeo actual
+  //   "pausing" -> vídeo terminado, esperando la pausa entre vídeos
+  let state = "playing";
+  let advanceTimer = null;
   let lastTime = -1;
   let stuckSeconds = 0;
-  let currentUrl = null;
-  let started = false;
-  let pausing = false;   // true durante la pausa entre vídeos
 
   const video = document.createElement("video");
-  video.autoplay = true;
   video.muted = true;
   video.defaultMuted = true;
   video.playsInline = true;
   video.controls = false;
+  video.loop = false;
   video.preload = "auto";
   video.setAttribute("muted", "");
-  video.setAttribute("autoplay", "");
   video.setAttribute("playsinline", "");
   video.setAttribute("webkit-playsinline", "");
   video.style.width = "100%";
   video.style.height = "100%";
   video.style.objectFit = "contain";
   video.style.background = "#000";
-
-  stage.innerHTML = `<div class="empty">Cargando vídeos…</div>`;
-
-  const play = async () => {
-    if (!ready.length) return;
-    index = index % ready.length;
-    const file = ready[index];
-    lastTime = -1;
-    stuckSeconds = 0;
-    video.loop = false;   // la repetición la gestiona "ended" (con pausa)
-
-    let src = file.src;
-    if (hasCache) {
-      const cache = await caches.open(CACHE_NAME);
-      const res = await cache.match(cacheKey(file));
-      if (res) {
-        try {
-          const blob = await res.blob();
-          if (currentUrl) URL.revokeObjectURL(currentUrl);
-          currentUrl = URL.createObjectURL(blob);
-          src = currentUrl;
-        } catch (error) {
-          // Poca memoria en la TV: reproducir directamente desde Netlify
-          console.warn("No se pudo usar la copia guardada:", error);
-        }
-      }
-    }
-    video.src = src;
-    video.load();
-    tryPlay();
-  };
 
   // Aviso para cuando la TV bloquea el autoplay (p. ej. Samsung Internet)
   const startHint = document.createElement("div");
@@ -217,143 +193,150 @@ function showVideos(files) {
     "background:rgba(0,0,0,.75);color:#fff;padding:18px 28px;border-radius:12px;" +
     "font-size:24px;font-weight:700;text-align:center;display:none";
   stage.style.position = "relative";
+  stage.innerHTML = `<div class="empty">Cargando vídeos…</div>`;
 
   const tryPlay = () => {
     const p = video.play();
     if (p && p.then) {
       p.then(() => { startHint.style.display = "none"; })
        .catch(error => {
+        if (error && error.name === "AbortError") return; // se cambió de vídeo, normal
         console.error("Autoplay bloqueado o error:", error);
         if (error && error.name === "NotAllowedError") {
-          if (!startHint.parentNode) stage.appendChild(startHint);
           startHint.style.display = "block";
         }
       });
     }
   };
 
-  // Un botón del mando / clic desbloquea la reproducción
-  window.startVideoPlayback = tryPlay;
+  // Cargar y reproducir el vídeo actual (síncrono: sin esperas intermedias)
+  const play = () => {
+    if (!ready.length) return;
+    index = index % ready.length;
+    const file = ready[index];
+    state = "playing";
+    lastTime = -1;
+    stuckSeconds = 0;
+    video.src = localUrls[file.id] || file.src;
+    video.load();
+    tryPlay();
+  };
 
-  const next = () => {
-    index = (index + 1) % Math.max(ready.length, 1);
-    play();
+  // Programar el paso al siguiente vídeo (cancela cualquier otro programado)
+  const scheduleNext = ms => {
+    clearTimeout(advanceTimer);
+    advanceTimer = setTimeout(() => {
+      advanceTimer = null;
+      index = (index + 1) % ready.length;
+      play();
+    }, ms);
+  };
+
+  // Un botón del mando / clic: solo arranca si el vídeo está parado a mitad
+  window.startVideoPlayback = () => {
+    if (state === "playing" && video.paused && !video.ended) tryPlay();
   };
 
   const addReady = file => {
     ready.push(file);
     if (!started) {
       started = true;
-      stage.replaceChildren(video);
+      stage.replaceChildren(video, startHint);
       play();
     }
   };
 
   // Al terminar: se queda en la última imagen durante la pausa y luego pasa al siguiente
   video.addEventListener("ended", () => {
-    pausing = true;
-    setTimeout(() => {
-      pausing = false;
-      next();
-    }, CONFIG.pauseBetweenVideos * 1000);
+    if (state !== "playing") return;
+    state = "pausing";
+    scheduleNext(CONFIG.pauseBetweenVideos * 1000);
   });
 
   video.addEventListener("error", () => {
+    if (state !== "playing" || !video.getAttribute("src")) return;
     console.error("Error cargando vídeo:", ready[index] && ready[index].name, video.error);
-    setTimeout(next, 3000);
+    const file = ready[index];
+    // Si falló la copia local, la próxima vez usar la de Netlify
+    if (file && localUrls[file.id] && video.src === localUrls[file.id]) {
+      delete localUrls[file.id];
+    }
+    state = "pausing";
+    scheduleNext(3000);
   });
 
-  // Vigilante: si el vídeo no avanza durante 20 s, saltar al siguiente
+  // Vigilante (solo mientras se reproduce): reanuda si se pausó solo y
+  // salta al siguiente si el vídeo no avanza en 20 s
   setInterval(() => {
-    if (!started || pausing) return;
-    if (video.currentTime === lastTime) {
-      stuckSeconds += 5;
-      if (video.paused) tryPlay();
-      if (stuckSeconds >= 20) {
-        console.warn("Vídeo atascado, saltando:", ready[index] && ready[index].name);
-        next();
-      }
-    } else {
+    if (!started || state !== "playing" || video.ended) return;
+    if (video.currentTime !== lastTime) {
       lastTime = video.currentTime;
       stuckSeconds = 0;
+      return;
+    }
+    stuckSeconds += 5;
+    if (video.paused) tryPlay();
+    if (stuckSeconds >= 20) {
+      console.warn("Vídeo atascado, saltando:", ready[index] && ready[index].name);
+      state = "pausing";
+      scheduleNext(0);
     }
   }, 5000);
 
-  // Descarga un vídeo y lo guarda. Devuelve true si quedó guardado.
+  // Crear la URL local de un vídeo guardado (una sola vez por vídeo)
+  const makeLocalUrl = async (cache, file) => {
+    try {
+      const res = await cache.match(cacheKey(file));
+      if (res) localUrls[file.id] = URL.createObjectURL(await res.blob());
+    } catch (error) {
+      console.warn("No se pudo usar la copia guardada:", file.name, error);
+    }
+  };
+
   const download = async (cache, file) => {
     try {
       const res = await fetch(file.src);
       const type = res.headers.get("content-type") || "";
       if (!res.ok || !type.startsWith("video/")) {
-        console.warn("Drive no devolvió el vídeo:", file.name, res.status, type);
-        return false;
+        console.warn("No se pudo descargar el vídeo:", file.name, res.status, type);
+        return;
       }
       await cache.put(cacheKey(file), res);
-      return true;
     } catch (error) {
-      console.warn("Fallo descargando vídeo:", file.name, error);
-      return false;
+      console.warn("Fallo guardando vídeo:", file.name, error);
     }
   };
 
   const loadAll = async () => {
-    // Sin Cache API: reproducir directamente desde Drive (comportamiento antiguo)
     if (!hasCache) {
-      files.forEach(addReady);
+      files.forEach(addReady);   // sin caché: reproducir directo desde Netlify
       return;
     }
 
-    // Borrar cachés de versiones anteriores (p. ej. vídeos HEVC antiguos)
+    // Borrar cachés de versiones anteriores
     for (const name of await caches.keys()) {
       if (name !== CACHE_NAME) await caches.delete(name);
     }
-
     const cache = await caches.open(CACHE_NAME);
 
-    // Borrar vídeos guardados que ya no están en la carpeta de Drive
+    // Borrar vídeos guardados que ya no están en la lista
     const wanted = new Set(files.map(f => cacheKey(f)));
     for (const req of await cache.keys()) {
       if (!wanted.has(new URL(req.url).pathname)) await cache.delete(req);
     }
 
-    // Primero los que ya estaban guardados (no tocan Drive)
-    const pending = [];
+    // En orden: si no está guardado se descarga; si no se puede guardar
+    // (poco espacio en la TV), se reproduce igualmente desde Netlify
     for (const file of files) {
-      if (await cache.match(cacheKey(file))) addReady(file);
-      else pending.push(file);
-    }
-
-    // Luego descargar los nuevos, de uno en uno
-    const failed = [];
-    // Si no se puede guardar (p. ej. poco espacio en la TV), se reproduce
-    // igualmente en streaming directo desde Netlify
-    for (const file of pending) {
-      await download(cache, file);
+      if (!(await cache.match(cacheKey(file)))) await download(cache, file);
+      await makeLocalUrl(cache, file);
       addReady(file);
     }
-
-    // Reintentar los que fallaron cada RETRY_MINUTES hasta conseguirlo
-    const retry = async list => {
-      if (!list.length) return;
-      if (!started) {
-        stage.innerHTML = `<div class="empty">No se pudieron descargar los vídeos.<br>
-          <small>Se reintentará en ${RETRY_MINUTES} minutos.</small></div>`;
-      }
-      setTimeout(async () => {
-        const stillFailed = [];
-        for (const file of list) {
-          if (await download(cache, file)) addReady(file);
-          else stillFailed.push(file);
-        }
-        retry(stillFailed);
-      }, RETRY_MINUTES * 60 * 1000);
-    };
-    retry(failed);
   };
 
   loadAll().catch(error => {
     console.error("Error preparando vídeos:", error);
-    files.forEach(addReady);   // último recurso: reproducir directo de Drive
+    files.forEach(f => { if (ready.indexOf(f) === -1) addReady(f); });
   });
 }
 
