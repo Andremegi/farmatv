@@ -5,7 +5,10 @@
 //
 // Si algo falla, el build falla y Netlify mantiene publicada la versión anterior.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rename, unlink } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import ffmpegPath from "ffmpeg-static";
 import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -39,7 +42,31 @@ async function download(file) {
   if (!res.ok || !type.startsWith("video/")) {
     throw new Error(`No se pudo descargar ${file.name}: ${res.status} ${type}`);
   }
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(`${OUT_DIR}/${file.id}.mp4`));
+  const raw = `${OUT_DIR}/${file.id}.original.mp4`;
+  const out = `${OUT_DIR}/${file.id}.mp4`;
+  await pipeline(Readable.fromWeb(res.body), createWriteStream(raw));
+
+  // Los vídeos de iPhone suelen venir en HEVC (H.265), que el navegador de
+  // muchas Smart TV (p. ej. Samsung) no reproduce. Se convierten a H.264.
+  if (isHevc(await readFile(raw))) {
+    console.log(`  HEVC detectado, convirtiendo a H.264...`);
+    await promisify(execFile)(ffmpegPath, [
+      "-y", "-loglevel", "error",
+      "-i", raw,
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "128k",
+      "-movflags", "+faststart",
+      out
+    ], { maxBuffer: 1024 * 1024 * 10 });
+    await unlink(raw);
+  } else {
+    await rename(raw, out);
+  }
+}
+
+function isHevc(buffer) {
+  return buffer.includes("hvc1") || buffer.includes("hev1");
 }
 
 const files = await listVideos();

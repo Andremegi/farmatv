@@ -1,2 +1,3 @@
 # Vídeos descargados de Drive durante el build
 public/videos/
+node_modules/

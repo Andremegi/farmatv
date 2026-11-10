@@ -83,7 +83,7 @@ const CONFIG = {
   instagramLabel: "@farmaciabarcelomadrid",
   websiteUrl: "https://farmaciabarcelo.es",
   websiteLabel: "farmaciabarcelo.es",
-  videoSeconds: 30,
+  pauseBetweenVideos: 30,   // segundos de pausa entre un vídeo y el siguiente
   imageSeconds: 8
 };
 
@@ -150,7 +150,7 @@ function showVideos(files) {
   // guarda en el navegador. Así Google no nos bloquea por "consultas
   // automatizadas" al repetir descargas en cada vuelta del bucle.
   // ---------------------------------------------------------------
-  const CACHE_NAME = "farmatv-videos-v1";
+  const CACHE_NAME = "farmatv-videos-v2";   // v2: vídeos convertidos a H.264
   const RETRY_MINUTES = 30;          // reintento si Google bloquea/falla
   const cacheKey = f => `/video-cache/${f.id}`;
   const hasCache = "caches" in window;
@@ -161,6 +161,7 @@ function showVideos(files) {
   let stuckSeconds = 0;
   let currentUrl = null;
   let started = false;
+  let pausing = false;   // true durante la pausa entre vídeos
 
   const video = document.createElement("video");
   video.autoplay = true;
@@ -186,7 +187,7 @@ function showVideos(files) {
     const file = ready[index];
     lastTime = -1;
     stuckSeconds = 0;
-    video.loop = ready.length === 1;
+    video.loop = false;   // la repetición la gestiona "ended" (con pausa)
 
     let src = file.src;
     if (hasCache) {
@@ -245,12 +246,17 @@ function showVideos(files) {
       started = true;
       stage.replaceChildren(video);
       play();
-    } else {
-      video.loop = ready.length === 1;
     }
   };
 
-  video.addEventListener("ended", next);
+  // Al terminar: se queda en la última imagen durante la pausa y luego pasa al siguiente
+  video.addEventListener("ended", () => {
+    pausing = true;
+    setTimeout(() => {
+      pausing = false;
+      next();
+    }, CONFIG.pauseBetweenVideos * 1000);
+  });
 
   video.addEventListener("error", () => {
     console.error("Error cargando vídeo:", ready[index] && ready[index].name, video.error);
@@ -259,7 +265,7 @@ function showVideos(files) {
 
   // Vigilante: si el vídeo no avanza durante 20 s, saltar al siguiente
   setInterval(() => {
-    if (!started) return;
+    if (!started || pausing) return;
     if (video.currentTime === lastTime) {
       stuckSeconds += 5;
       if (video.paused) tryPlay();
@@ -295,6 +301,11 @@ function showVideos(files) {
     if (!hasCache) {
       files.forEach(addReady);
       return;
+    }
+
+    // Borrar cachés de versiones anteriores (p. ej. vídeos HEVC antiguos)
+    for (const name of await caches.keys()) {
+      if (name !== CACHE_NAME) await caches.delete(name);
     }
 
     const cache = await caches.open(CACHE_NAME);
