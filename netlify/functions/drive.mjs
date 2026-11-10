@@ -85,8 +85,16 @@ export default async (req) => {
 
     const data = await response.json();
 
+    // URL de streaming directo (soporta Range requests, sin página de antivirus).
+    // Se puede usar una clave aparte, restringida por dominio, para el navegador.
+    const MEDIA_KEY = process.env.GOOGLE_MEDIA_KEY || API_KEY;
+    const files = (data.files || []).map(f => ({
+      ...f,
+      src: `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&key=${MEDIA_KEY}`
+    }));
+
     return Response.json(
-      { files: data.files || [] },
+      { files },
       {
         headers: {
           "Cache-Control": "public, max-age=60"
