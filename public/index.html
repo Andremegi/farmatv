@@ -101,55 +101,99 @@ function showVideos(files) {
   }
 
   let index = 0;
+  let lastTime = -1;
+  let stuckSeconds = 0;
 
-  const render = () => {
-    const video = document.createElement("video");
+  // Un único reproductor reutilizado (más fiable en TVs que crear uno nuevo)
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.muted = true;
+  video.defaultMuted = true;
+  video.playsInline = true;
+  video.controls = false;
+  video.preload = "auto";
+  video.style.width = "100%";
+  video.style.height = "100%";
+  video.style.objectFit = "contain";
+  video.style.background = "#000";
 
-    // Configuración del reproductor
-    video.autoplay = true;
-    video.muted = true;
-    video.defaultMuted = true;
-    video.playsInline = true;
-    video.controls = false;
-    video.preload = "auto";
+  // Si solo hay un vídeo, repetirlo en bucle
+  video.loop = files.length === 1;
 
-    // Adaptación al espacio de la televisión
-    video.style.width = "100%";
-    video.style.height = "100%";
-    video.style.objectFit = "contain";
-    video.style.background = "#000";
+  stage.replaceChildren(video);
 
+  const play = () => {
+    lastTime = -1;
+    stuckSeconds = 0;
     // Vídeo vía Drive API (alt=media): streaming real compatible con <video>
     video.src = files[index].src;
-
-    const next = () => {
-      index = (index + 1) % files.length;
-      render();
-    };
-
-    // Cuando termina, reproduce el siguiente
-    video.onended = next;
-
-    // Si falla la carga, lo registramos y saltamos al siguiente
-    video.onerror = () => {
-      console.error(
-        "Error cargando vídeo:",
-        files[index].name,
-        video.error
-      );
-      setTimeout(next, 3000);
-    };
-
-    stage.replaceChildren(video);
-
-    // Intentar iniciar la reproducción
+    video.load();
     video.play().catch(error => {
       console.error("Autoplay bloqueado o error:", error);
     });
   };
 
-  render();
+  const next = () => {
+    index = (index + 1) % files.length; // al llegar al final vuelve al primero
+    play();
+  };
+
+  // Cuando termina, reproduce el siguiente
+  video.addEventListener("ended", next);
+
+  // Si falla la carga, lo registramos y saltamos al siguiente
+  video.addEventListener("error", () => {
+    console.error("Error cargando vídeo:", files[index].name, video.error);
+    setTimeout(next, 3000);
+  });
+
+  // Vigilante: si el vídeo no avanza durante 20 s (atascado), saltar al siguiente
+  setInterval(() => {
+    if (video.currentTime === lastTime) {
+      stuckSeconds += 5;
+      if (video.paused) video.play().catch(() => {});
+      if (stuckSeconds >= 20) {
+        console.warn("Vídeo atascado, saltando:", files[index].name);
+        next();
+      }
+    } else {
+      lastTime = video.currentTime;
+      stuckSeconds = 0;
+    }
+  }, 5000);
+
+  play();
 }
+
+// PANTALLA COMPLETA
+// Los navegadores solo permiten pantalla completa tras una interacción:
+// basta con pulsar cualquier botón del mando/teclado o hacer clic una vez.
+function goFullscreen() {
+  const el = document.documentElement;
+  if (document.fullscreenElement || document.webkitFullscreenElement) return;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) {
+    Promise.resolve(req.call(el)).catch(err =>
+      console.warn("No se pudo activar pantalla completa:", err)
+    );
+  }
+}
+["click", "keydown", "touchstart"].forEach(evt =>
+  document.addEventListener(evt, goFullscreen)
+);
+
+// Ocultar el cursor del ratón
+document.documentElement.style.cursor = "none";
+
+// Recargar la página cada hora: actualiza la lista de Drive y
+// recupera la pantalla ante cualquier fallo inesperado
+// (Si la pantalla completa se activó con un clic, recargar la quitaría,
+// así que en ese caso no se recarga. Con el modo kiosco/F11 sí se recarga.)
+setTimeout(() => {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    location.reload();
+  }
+}, 60 * 60 * 1000);
 
 
 // MOSTRAR IMÁGENES
