@@ -9,17 +9,17 @@
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--cream);font-family:Montserrat,Helvetica,sans-serif;color:var(--ink)}
 body{display:flex;flex-direction:column}
 header{height:12vh;min-height:78px;background:var(--green);color:#FBF9F6;display:flex;align-items:center;justify-content:space-between;padding:0 3.2vw;gap:2vw}
-.brand{font-size:clamp(25px,3vw,48px);font-weight:800;letter-spacing:.04em}.links{font-size:clamp(13px,1.4vw,22px);text-align:right;line-height:1.5}.links a{color:#F5F1ED;text-decoration:none}
+.brand{font-size:3vw;font-size:clamp(25px,3vw,48px);font-weight:800;letter-spacing:.04em}.links{font-size:1.4vw;font-size:clamp(13px,1.4vw,22px);text-align:right;line-height:1.5}.links a{color:#F5F1ED;text-decoration:none}
 main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr;gap:1.5vw}
 .panel{background:#FBF9F6;border:1px solid #F5F1ED;border-radius:18px;overflow:hidden;box-shadow:0 4px 18px #F5F1ED;min-height:0}
-.video-panel{display:flex;flex-direction:column}.section-title{background:var(--mint);padding:1.2vh 1.2vw;font-size:clamp(17px,1.6vw,26px);font-weight:700;color:var(--green)}
+.video-panel{display:flex;flex-direction:column}.section-title{background:var(--mint);padding:1.2vh 1.2vw;font-size:1.6vw;font-size:clamp(17px,1.6vw,26px);font-weight:700;color:var(--green)}
 .video-stage{flex:1;min-height:0;background:#81788B;display:flex;align-items:center;justify-content:center;position:relative}
-.video-stage iframe{width:100%;height:100%;border:0}.video-stage .empty{color:#FBF9F6;text-align:center;padding:30px;font-size:clamp(18px,2vw,30px)}
+.video-stage iframe{width:100%;height:100%;border:0}.video-stage .empty{color:#FBF9F6;text-align:center;padding:30px;font-size:2vw;font-size:clamp(18px,2vw,30px)}
 .side{display:grid;grid-template-rows:1fr 1fr;gap:1.5vh;min-height:0}.carousel-panel{display:flex;flex-direction:column;min-height:0}
 .carousel-stage{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#F5F1ED}
 .carousel-stage img{width:100%;height:100%;object-fit:contain;padding:1vh 1vw}
-.caption{position:absolute;bottom:0;left:0;right:0;background:#C2B2D8;color:#FBF9F6;padding:10px 14px;font-size:clamp(12px,1.2vw,18px);text-align:center}
-.empty-side{padding:20px;text-align:center;color:#78619B;font-size:clamp(14px,1.3vw,20px)}
+.caption{position:absolute;bottom:0;left:0;right:0;background:#C2B2D8;color:#FBF9F6;padding:10px 14px;font-size:1.2vw;font-size:clamp(12px,1.2vw,18px);text-align:center}
+.empty-side{padding:20px;text-align:center;color:#78619B;font-size:1.3vw;font-size:clamp(14px,1.3vw,20px)}
 @media(max-aspect-ratio:4/3){main{grid-template-columns:1.3fr 1fr}.brand{font-size:25px}}
 </style>
 </head>
@@ -45,6 +45,13 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr
   </div>
 </main>
 <script>
+// Compatibilidad con navegadores antiguos de Smart TV (Chrome < 86)
+if (!Element.prototype.replaceChildren) {
+  Element.prototype.replaceChildren = function () {
+    while (this.firstChild) this.removeChild(this.firstChild);
+    for (var i = 0; i < arguments.length; i++) this.appendChild(arguments[i]);
+  };
+}
 const CONFIG = {
   instagramUrl: "https://www.instagram.com/farmaciabarcelomadrid/",
   instagramLabel: "@farmaciabarcelomadrid",
@@ -248,9 +255,11 @@ function showVideos(files) {
 
     // Luego descargar los nuevos, de uno en uno
     const failed = [];
+    // Si no se puede guardar (p. ej. poco espacio en la TV), se reproduce
+    // igualmente en streaming directo desde Netlify
     for (const file of pending) {
-      if (await download(cache, file)) addReady(file);
-      else failed.push(file);
+      await download(cache, file);
+      addReady(file);
     }
 
     // Reintentar los que fallaron cada RETRY_MINUTES hasta conseguirlo
