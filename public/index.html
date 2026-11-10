@@ -26,7 +26,7 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1fr 1.65fr
 .pause-screen.show{display:flex}
 .pause-logo{width:100%;height:100%;object-fit:contain;padding:3vh 3vw}
 .pause-brand{font-size:4vw;font-weight:800;color:var(--green);letter-spacing:.04em;margin-bottom:18vh}
-.pause-phrase{position:absolute;left:50%;bottom:14%;transform:translateX(-50%);width:80%;text-align:center;
+.pause-phrase{position:absolute;left:50%;top:62%;transform:translate(-50%,-50%);width:80%;text-align:center;
   font-size:2.6vw;font-size:clamp(22px,2.6vw,44px);font-weight:700;line-height:1.3;color:var(--ink);
   background:rgba(251,249,246,.88);padding:.6em 1em;border-radius:14px;box-shadow:0 4px 18px rgba(136,113,170,.25)}
 </style>
@@ -93,6 +93,7 @@ const CONFIG = {
   websiteLabel: "farmaciabarcelo.es",
   pauseBetweenVideos: 30,   // segundos de pausa entre un vídeo y el siguiente
   defaultPhrase: "¡Que tengas un buen día!",   // si no hay frases en Drive
+  phrasePosition: 0.62,     // altura de la frase sobre el logo: 0 = arriba, 0.5 = centro, 1 = abajo
   imageSeconds: 8
 };
 
@@ -225,16 +226,44 @@ function showVideos(files) {
         img.className = "pause-logo";
         img.alt = "Logo";
         img.src = `https://lh3.googleusercontent.com/d/${data.logo.id}`;
+        img.onload = layoutPhrase;
         pauseScreen.replaceChild(img, pauseLogo);
+        logoImg = img;
       }
     })
     .catch(error => console.warn("Sin logo/frases de pausa, se usa el texto por defecto:", error));
+
+  // Coloca la frase sobre la zona VISIBLE del logo (que se escala según la
+  // pantalla) y ajusta el tamaño de letra al tamaño real del logo
+  let logoImg = null;
+  const layoutPhrase = () => {
+    const W = pauseScreen.clientWidth, H = pauseScreen.clientHeight;
+    if (!logoImg || !logoImg.naturalWidth || !W || !H) {
+      // Sin logo: posición relativa a la zona del vídeo
+      pausePhrase.style.top = (CONFIG.phrasePosition * 100) + "%";
+      pausePhrase.style.width = "80%";
+      pausePhrase.style.fontSize = "";
+      return;
+    }
+    const cs = getComputedStyle(logoImg);
+    const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const boxW = W - padX, boxH = H - padY;
+    const scale = Math.min(boxW / logoImg.naturalWidth, boxH / logoImg.naturalHeight);
+    const imgW = logoImg.naturalWidth * scale, imgH = logoImg.naturalHeight * scale;
+    const imgTop = (H - imgH) / 2;
+    pausePhrase.style.top = (imgTop + imgH * CONFIG.phrasePosition) + "px";
+    pausePhrase.style.width = Math.max(imgW * 0.85, W * 0.5) + "px";
+    pausePhrase.style.fontSize = Math.max(18, Math.min(56, imgW * 0.045)) + "px";
+  };
+  window.addEventListener("resize", layoutPhrase);
 
   const showPause = () => {
     pausePhrase.textContent = phrases.length
       ? phrases[phraseIndex++ % phrases.length]
       : CONFIG.defaultPhrase;
     pauseScreen.classList.add("show");
+    layoutPhrase();
   };
   const hidePause = () => pauseScreen.classList.remove("show");
 
