@@ -10,7 +10,7 @@
 body{display:flex;flex-direction:column}
 header{height:12vh;min-height:78px;background:var(--green);color:#FBF9F6;display:flex;align-items:center;justify-content:space-between;padding:0 3.2vw;gap:2vw}
 .brand{font-size:3vw;font-size:clamp(25px,3vw,48px);font-weight:800;letter-spacing:.04em}.links{font-size:1.4vw;font-size:clamp(13px,1.4vw,22px);text-align:right;line-height:1.5}.links a{color:#F5F1ED;text-decoration:none}
-main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr;gap:1.5vw}
+main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1fr 1.65fr;gap:1.5vw}
 .panel{background:#FBF9F6;border:1px solid #F5F1ED;border-radius:18px;overflow:hidden;box-shadow:0 4px 18px #F5F1ED;min-height:0}
 .video-panel{display:flex;flex-direction:column}.section-title{background:var(--mint);padding:1.2vh 1.2vw;font-size:1.6vw;font-size:clamp(17px,1.6vw,26px);font-weight:700;color:var(--green)}
 .video-stage{flex:1;min-height:0;background:#81788B;display:flex;align-items:center;justify-content:center;position:relative}
@@ -20,7 +20,7 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr
 .carousel-stage img{width:100%;height:100%;object-fit:contain;padding:1vh 1vw}
 .caption{position:absolute;bottom:0;left:0;right:0;background:#C2B2D8;color:#FBF9F6;padding:10px 14px;font-size:1.2vw;font-size:clamp(12px,1.2vw,18px);text-align:center}
 .empty-side{padding:20px;text-align:center;color:#78619B;font-size:1.3vw;font-size:clamp(14px,1.3vw,20px)}
-@media(max-aspect-ratio:4/3){main{grid-template-columns:1.3fr 1fr}.brand{font-size:25px}}
+@media(max-aspect-ratio:4/3){main{grid-template-columns:1fr 1.3fr}.brand{font-size:25px}}
 </style>
 </head>
 <body>
@@ -29,10 +29,6 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr
   <div class="links"><a id="instagram" href="https://www.instagram.com/farmaciabarcelomadrid" target="_blank">Instagram:@farmaciabarcelomadrid</a><br><a id="website" href="https://farmaciabarcelo.es" target="_blank">farmaciabarcelo.es</a></div>
 </header>
 <main>
-  <section class="panel video-panel">
-    <div class="section-title">Vídeos de salud y farmacia</div>
-    <div class="video-stage" id="videoStage"><div class="empty">Los vídeos aparecerán aquí</div></div>
-  </section>
   <div class="side">
     <section class="panel carousel-panel">
       <div class="section-title">Novedades</div>
@@ -43,6 +39,10 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr
       <div class="carousel-stage" id="promoStage"><div class="empty-side">Las imágenes de promociones aparecerán aquí</div></div>
     </section>
   </div>
+  <section class="panel video-panel">
+    <div class="section-title">Vídeos de salud y farmacia</div>
+    <div class="video-stage" id="videoStage"><div class="empty">Los vídeos aparecerán aquí</div></div>
+  </section>
 </main>
 <script>
 // MODO DIAGNÓSTICO: abrir la web con ?debug=1 para ver en pantalla
