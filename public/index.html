@@ -85,6 +85,18 @@ async function listDrive(folder) {
 }
 
 
+// VÍDEOS PUBLICADOS EN NETLIFY
+// (los copia desde Drive el build: scripts/sync-videos.mjs)
+async function listLocalVideos() {
+  const response = await fetch("/videos/list.json", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("No se encontró /videos/list.json: " + response.status);
+  }
+  const data = await response.json();
+  return data.files || [];
+}
+
+
 // MOSTRAR VÍDEOS
 
 
@@ -348,7 +360,7 @@ function showImages(files, stageId) {
 
     const [videos, news, promos] = await Promise.all([
 
-      listDrive("videos"),
+      listLocalVideos(),
 
       listDrive("news"),
 
