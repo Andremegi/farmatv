@@ -45,6 +45,32 @@ main{height:88vh;padding:2.1vh 2vw;display:grid;grid-template-columns:1.65fr 1fr
   </div>
 </main>
 <script>
+// MODO DIAGNÓSTICO: abrir la web con ?debug=1 para ver en pantalla
+// el navegador de la TV y cualquier error (las TVs no tienen consola).
+(function () {
+  if (location.search.indexOf("debug=1") === -1) return;
+  var box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:0;right:0;bottom:0;max-height:45%;overflow:auto;" +
+    "background:rgba(0,0,0,.85);color:#0f0;font:14px monospace;padding:10px;z-index:9999;white-space:pre-wrap";
+  function log(msg) { box.appendChild(document.createTextNode(msg + "\n")); }
+  log("Navegador: " + navigator.userAgent);
+  log("Cache API: " + ("caches" in window) + " | fetch: " + ("fetch" in window));
+  var v = document.createElement("video");
+  log("H.264 MP4: " + (v.canPlayType('video/mp4; codecs="avc1.42E01E"') || "no"));
+  window.onerror = function (m, src, line) { log("ERROR: " + m + " (línea " + line + ")"); };
+  window.addEventListener("unhandledrejection", function (e) { log("ERROR promesa: " + e.reason); });
+  ["error", "warn"].forEach(function (k) {
+    var orig = console[k];
+    console[k] = function () {
+      log(k.toUpperCase() + ": " + Array.prototype.join.call(arguments, " "));
+      orig.apply(console, arguments);
+    };
+  });
+  document.addEventListener("DOMContentLoaded", function () { document.body.appendChild(box); });
+  if (document.body) document.body.appendChild(box);
+})();
+</script>
+<script>
 // Compatibilidad con navegadores antiguos de Smart TV (Chrome < 86)
 if (!Element.prototype.replaceChildren) {
   Element.prototype.replaceChildren = function () {
@@ -143,6 +169,10 @@ function showVideos(files) {
   video.playsInline = true;
   video.controls = false;
   video.preload = "auto";
+  video.setAttribute("muted", "");
+  video.setAttribute("autoplay", "");
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
   video.style.width = "100%";
   video.style.height = "100%";
   video.style.objectFit = "contain";
@@ -163,17 +193,46 @@ function showVideos(files) {
       const cache = await caches.open(CACHE_NAME);
       const res = await cache.match(cacheKey(file));
       if (res) {
-        if (currentUrl) URL.revokeObjectURL(currentUrl);
-        currentUrl = URL.createObjectURL(await res.blob());
-        src = currentUrl;
+        try {
+          const blob = await res.blob();
+          if (currentUrl) URL.revokeObjectURL(currentUrl);
+          currentUrl = URL.createObjectURL(blob);
+          src = currentUrl;
+        } catch (error) {
+          // Poca memoria en la TV: reproducir directamente desde Netlify
+          console.warn("No se pudo usar la copia guardada:", error);
+        }
       }
     }
     video.src = src;
     video.load();
-    video.play().catch(error => {
-      console.error("Autoplay bloqueado o error:", error);
-    });
+    tryPlay();
   };
+
+  // Aviso para cuando la TV bloquea el autoplay (p. ej. Samsung Internet)
+  const startHint = document.createElement("div");
+  startHint.textContent = "Pulsa OK en el mando para empezar";
+  startHint.style.cssText = "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);" +
+    "background:rgba(0,0,0,.75);color:#fff;padding:18px 28px;border-radius:12px;" +
+    "font-size:24px;font-weight:700;text-align:center;display:none";
+  stage.style.position = "relative";
+
+  const tryPlay = () => {
+    const p = video.play();
+    if (p && p.then) {
+      p.then(() => { startHint.style.display = "none"; })
+       .catch(error => {
+        console.error("Autoplay bloqueado o error:", error);
+        if (error && error.name === "NotAllowedError") {
+          if (!startHint.parentNode) stage.appendChild(startHint);
+          startHint.style.display = "block";
+        }
+      });
+    }
+  };
+
+  // Un botón del mando / clic desbloquea la reproducción
+  window.startVideoPlayback = tryPlay;
 
   const next = () => {
     index = (index + 1) % Math.max(ready.length, 1);
@@ -203,7 +262,7 @@ function showVideos(files) {
     if (!started) return;
     if (video.currentTime === lastTime) {
       stuckSeconds += 5;
-      if (video.paused) video.play().catch(() => {});
+      if (video.paused) tryPlay();
       if (stuckSeconds >= 20) {
         console.warn("Vídeo atascado, saltando:", ready[index] && ready[index].name);
         next();
@@ -291,6 +350,7 @@ function showVideos(files) {
 // Los navegadores solo permiten pantalla completa tras una interacción:
 // basta con pulsar cualquier botón del mando/teclado o hacer clic una vez.
 function goFullscreen() {
+  if (window.startVideoPlayback) window.startVideoPlayback();
   const el = document.documentElement;
   if (document.fullscreenElement || document.webkitFullscreenElement) return;
   const req = el.requestFullscreen || el.webkitRequestFullscreen;
